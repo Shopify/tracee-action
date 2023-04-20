@@ -10,15 +10,20 @@ inputs:
     description: "Creates a PR to the default branch with profile differences if found"
     required: false
     default: 'false'
+  additional-save-path:
+    description: "Additional path to save tracee output to"
+    required: false
+    default: ''
+
 runs:
   using: 'composite'
   steps:
   - shell: bash
     run: |
       echo "Stopping Tracee..."
-      # sends SIGTERM to the tracee process to stop the container. 
+      # sends SIGTERM to the tracee process to stop the container.
       # this is a temporary solution because tracee is not handling signals properly,
-      # so we can use docker kill or docker stop. 
+      # so we can use docker kill or docker stop.
       sudo killall tracee
       docker wait tracee
   - shell: bash
@@ -40,17 +45,28 @@ runs:
           ${{github.action_path}}/create-pr-comment.sh ${{ github.token }}
         else
           echo "Printing triggered signatures"
-          cat /tmp/tracee-action/signatures.jsonl  
+          cat /tmp/tracee-action/signatures.jsonl
         fi
       fi
   - shell: bash
     run: |
+      if [[ -n "${{ inputs.additional-save-path }}" ]]; then
+        echo "Saving tracee output to ${{ inputs.additional-save-path }}"
+        mkdir -p ${{ inputs.additional-save-path }}
+        cp - r /tmp/tracee-action ${{ inputs.additional-save-path }}
+      fi
+  - shell: bash
+    run: |
+      if [ "${{ inputs.create-pr }}" == "false" ]; then
+        echo "Skipping profile check"
+        exit 0
+      fi
       echo "Checking profile..."
       rc=0
       ${{github.action_path}}/check.sh /tmp/tracee-action/profile-exec.json ./.tracee/profile-exec.json ${{ github.token }} ${{ inputs.create-pr }} || rc=$((rc+1))
       ${{github.action_path}}/check.sh /tmp/tracee-action/profile-dns.json ./.tracee/profile-dns.json ${{ github.token }} ${{ inputs.create-pr }} || rc=$((rc+1))
       ${{github.action_path}}/check.sh /tmp/tracee-action/profile-writes.json ./.tracee/profile-writes.json ${{ github.token }} ${{ inputs.create-pr }} || rc=$((rc+1))
       if [ "${{ inputs.fail-on-diff }}" == "true" ]; then
-        echo "***FAILING DUE TO PROFILE DEVIATION***" 
+        echo "***FAILING DUE TO PROFILE DEVIATION***"
         exit $rc
       fi
